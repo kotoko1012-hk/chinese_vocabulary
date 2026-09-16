@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中文基礎生字學習</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 PapaParse 用於解析 CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- 引入 Google Fonts (Inter & Noto Sans HK) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+HK:wght@400;600&display=swap" rel="stylesheet">
+    <!-- 引入 FontAwesome 圖標 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans HK', sans-serif;
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+        }
+        
+        /* 閃卡翻轉動畫與 3D 效果 */
+        .flashcard-container {
+            perspective: 1000px;
+        }
+        .flashcard {
+            transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+            transform-style: preserve-3d;
+            cursor: pointer;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        .flashcard.flipped {
+            transform: rotateY(180deg);
+        }
+        .flashcard-face {
+            backface-visibility: hidden;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 1rem;
+            background: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+        }
+        .flashcard-back {
+            transform: rotateY(180deg);
+            background: #f8fafc; /* Tailwind slate-50 */
+            border: 2px solid #e2e8f0;
+        }
+        
+        /* 測驗填空槽樣式 */
+        .blank-slot {
+            display: inline-block;
+            min-width: 80px;
+            padding: 0.25rem 0.75rem;
+            margin: 0 0.25rem;
+            text-align: center;
+            border-bottom: 2px solid #cbd5e1;
+            background-color: #f1f5f9;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+            color: #334155;
+        }
+        .blank-slot:hover {
+            background-color: #e2e8f0;
+        }
+        .blank-slot.active {
+            border-color: #3b82f6;
+            background-color: #dbeafe;
+        }
+        .blank-slot.error {
+            border-color: #ef4444;
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+        .blank-slot.success {
+            border-color: #22c55e;
+            background-color: #dcfce7;
+            color: #15803d;
+        }
+        
+        /* 字詞庫按鈕樣式 */
+        .word-btn {
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        .word-btn:active {
+            transform: scale(0.95);
+        }
+        .word-btn.used {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* 自訂滾動條 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8; 
+        }
+    </style>
+</head>
+
+<body class="min-h-screen text-gray-800 flex flex-col">
+    
+    <!-- 頂部導航/標題 -->
+    <header class="bg-white shadow-sm py-4 px-6 flex justify-between items-center z-10">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-layer-group text-blue-600 text-2xl"></i>
+            <h1 class="text-xl font-semibold text-gray-800 tracking-tight">中文基礎生字學習</h1>
+        </div>
+        <div id="status-badge" class="hidden bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
+            學習模式
+        </div>
+    </header>
+
+    <main class="flex-grow flex items-center justify-center p-4 w-full max-w-4xl mx-auto">
+        
+        <!-- ==================== 1. 歡迎與載入介面 ==================== -->
+        <section id="upload-screen" class="w-full bg-white rounded-2xl shadow-lg p-8 md:p-12 text-center animate-fade-in">
+            <div class="mb-8 text-blue-600">
+                <i class="fa-solid fa-book-open text-6xl"></i>
+            </div>
+            <h2 class="text-2xl md:text-3xl font-bold mb-4">歡迎來到中文基礎生字學習</h2>
+            <p class="text-gray-600 mb-8 max-w-lg mx-auto leading-relaxed">
+                準備好擴充你的中文詞彙量了嗎？系統將自動從雲端載入字詞庫，讓你透過閃卡與綜合填充測驗輕鬆學習。
+            </p>
+            
+            <div id="upload-error" class="hidden mt-4 text-red-500 text-sm font-medium"></div>
+            
+            <button id="start-btn" class="mt-8 w-full max-w-md mx-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl shadow-md transition-all active:transform active:scale-95 flex items-center justify-center">
+                <span id="btn-text">載入字詞庫並開始</span> <i id="btn-icon" class="fa-solid fa-arrow-right ml-2"></i>
+            </button>
+        </section>
+
+        <!-- ==================== 2. 學習主要介面 ==================== -->
+        <section id="app-screen" class="w-full hidden flex-col h-[80vh] md:h-auto">
+            
+            <!-- 進度條 -->
+            <div class="mb-6 w-full bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                <div class="w-full mr-4">
+                    <div class="flex justify-between text-xs font-semibold text-gray-500 mb-1">
+                        <span id="progress-text">學習進度: 0/0</span>
+                        <span id="progress-percentage">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div id="progress-bar-fill" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 閃卡視圖 -->
+            <div id="flashcard-view" class="flex-grow flex flex-col items-center justify-center">
+                <div class="text-sm text-gray-500 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-arrows-rotate"></i> 點擊卡片翻轉查看例句
+                </div>
+                
+                <div class="flashcard-container w-full max-w-2xl h-80 md:h-96">
+                    <div id="flashcard" class="flashcard">
+                        <!-- 正面：詞語 -->
+                        <div class="flashcard-face">
+                            <h2 id="card-word" class="text-5xl md:text-6xl font-bold text-gray-800 mb-6 tracking-wide text-center">詞語</h2>
+                        </div>
+                        <!-- 背面：例句 -->
+                        <div class="flashcard-face flashcard-back">
+                            <h3 class="text-xl md:text-2xl text-blue-600 font-semibold mb-4 border-b-2 border-blue-200 pb-2 w-full text-center">例句</h3>
+                            <p id="card-sentence" class="text-2xl md:text-3xl text-gray-700 leading-relaxed text-center px-4 md:px-8">這是一句例句。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex gap-4 w-full max-w-2xl px-4 md:px-0">
+                    <button id="tts-btn" class="flex-1 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold py-4 px-6 rounded-xl shadow-sm transition-colors text-lg flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-volume-high text-blue-500"></i> 粵語朗讀
+                    </button>
+                    <button id="next-btn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow-md transition-colors text-lg flex items-center justify-center gap-2">
+                        下一個 <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 測驗視圖 -->
+            <div id="quiz-view" class="hidden flex-grow flex-col bg-white rounded-2xl shadow-lg p-6 md:p-8 w-full">
+                <div class="text-center mb-8">
+                    <h2 class="text-2xl md:text-3xl font-bold text-gray-800 mb-2">綜合填充測驗</h2>
+                    <p class="text-gray-500">請從下方字詞庫中選擇正確的詞語填入空格中。點擊空格可以取消填寫。</p>
+                </div>
+
+                <!-- 測驗句子區塊 -->
+                <div id="quiz-sentences" class="space-y-6 mb-8 flex-grow overflow-y-auto pr-2">
+                    <!-- JavaScript 將動態生成測驗內容 -->
+                </div>
+
+                <!-- 分隔線 -->
+                <hr class="border-gray-200 mb-6">
+
+                <!-- 字詞庫區塊 -->
+                <div class="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                    <h3 class="text-sm font-semibold text-slate-500 mb-4 uppercase tracking-wider">字詞庫 (點擊選擇)</h3>
+                    <div id="word-bank" class="flex flex-wrap gap-3">
+                        <!-- JavaScript 將動態生成字詞按鈕 -->
+                    </div>
+                </div>
+
+                <div class="mt-8 flex justify-end gap-4">
+                    <button id="check-quiz-btn" class="hidden bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 px-8 rounded-xl shadow-md transition-colors text-lg">
+                        <i class="fa-solid fa-check mr-2"></i> 檢查答案
+                    </button>
+                    <button id="continue-learning-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-xl shadow-md transition-colors text-lg">
+                        繼續學習 <i class="fa-solid fa-arrow-right ml-2"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 完成視圖 -->
+            <div id="completion-view" class="hidden flex-grow flex-col items-center justify-center bg-white rounded-2xl shadow-lg p-12 w-full text-center">
+                <div class="text-yellow-400 mb-6">
+                    <i class="fa-solid fa-trophy text-7xl"></i>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-800 mb-4">恭喜你！</h2>
+                <p class="text-xl text-gray-600 mb-8">你已經完成了所有詞語的學習與測驗。</p>
+                <button onclick="location.reload()" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold py-3 px-8 rounded-xl shadow-md transition-colors text-lg">
+                    <i class="fa-solid fa-rotate-right mr-2"></i> 重新開始
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        // 全局狀態變數
+        let wordsData = [];
+        let currentIndex = 0;
+        let currentQuizBatch = [];
+        let quizAnswers = []; // 用戶目前的作答狀況 (與 currentQuizBatch 長度相同)
+        const BATCH_SIZE = 5; // 每學習 5 個詞語進行一次測驗
+        let isFlipped = false;
+        
+        // DOM 元素選取
+        const els = {
+            uploadScreen: document.getElementById('upload-screen'),
+            appScreen: document.getElementById('app-screen'),
+            uploadError: document.getElementById('upload-error'),
+            startBtn: document.getElementById('start-btn'),
+            btnText: document.getElementById('btn-text'),
+            btnIcon: document.getElementById('btn-icon'),
+            
+            progressText: document.getElementById('progress-text'),
+            progressPercentage: document.getElementById('progress-percentage'),
+            progressBarFill: document.getElementById('progress-bar-fill'),
+            statusBadge: document.getElementById('status-badge'),
+            
+            flashcardView: document.getElementById('flashcard-view'),
+            flashcard: document.getElementById('flashcard'),
+            cardWord: document.getElementById('cardWord') || document.getElementById('card-word'),
+            cardSentence: document.getElementById('cardSentence') || document.getElementById('card-sentence'),
+            ttsBtn: document.getElementById('tts-btn'),
+            nextBtn: document.getElementById('next-btn'),
+            
+            quizView: document.getElementById('quiz-view'),
+            quizSentences: document.getElementById('quiz-sentences'),
+            wordBank: document.getElementById('word-bank'),
+            checkQuizBtn: document.getElementById('check-quiz-btn'),
+            continueBtn: document.getElementById('continue-learning-btn'),
+            
+            completionView: document.getElementById('completion-view')
+        };
+
+        // 確保語音庫被載入 (部分瀏覽器需要)
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices();
+        };
+
+        // GitHub CSV 檔案的 Raw 網址 (純文字版本才能被直接讀取)
+        const CSV_URL = 'https://raw.githubusercontent.com/kotoko1012-hk/chinese_vocabulary/main/chinese_vocabulary_flashcards.csv';
+
+        function showError(msg) {
+            els.uploadError.textContent = msg;
+            els.uploadError.classList.remove('hidden');
+            els.btnText.textContent = "重試載入";
+            els.btnIcon.className = "fa-solid fa-rotate-right ml-2";
+            els.startBtn.disabled = false;
+            els.startBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+        }
+
+        // 開始學習按鈕：直接從 GitHub 下載並解析 CSV
+        els.startBtn.addEventListener('click', () => {
+            els.uploadError.classList.add('hidden');
+            els.btnText.textContent = "載入中...";
+            els.btnIcon.className = "fa-solid fa-spinner fa-spin ml-2";
+            els.startBtn.disabled = true;
+            els.startBtn.classList.add('opacity-70', 'cursor-not-allowed');
+
+            Papa.parse(CSV_URL, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    const data = results.data;
+                    
+                    // 驗證 CSV 格式
+                    if (data.length === 0) {
+                        showError("載入的檔案是空的，請檢查內容。");
+                        return;
+                    }
+                    if (!data[0].hasOwnProperty('word') || !data[0].hasOwnProperty('sentence')) {
+                        showError("CSV 必須包含 'word' 和 'sentence' 標題列。");
+                        return;
+                    }
+                    
+                    // 過濾掉不完整的資料
+                    wordsData = data.filter(item => item.word && item.word.trim() !== '' && item.sentence && item.sentence.trim() !== '');
+                    
+                    if (wordsData.length === 0) {
+                        showError("找不到有效的詞語與例句資料。");
+                        return;
+                    }
+
+                    // 成功讀取，顯示學習介面
+                    els.uploadScreen.classList.add('hidden');
+                    els.appScreen.classList.remove('hidden');
+                    els.appScreen.classList.add('flex');
+                    initLearning();
+                },
+                error: function(err) {
+                    showError("載入字詞庫時發生錯誤：" + err.message);
+                }
+            });
+        });
+
+        function initLearning() {
+            currentIndex = 0;
+            updateProgress();
+            renderFlashcard();
+        }
+
+        function updateProgress() {
+            const displayIndex = Math.min(currentIndex, wordsData.length);
+            els.progressText.textContent = `學習進度: ${displayIndex} / ${wordsData.length}`;
+            const percentage = wordsData.length > 0 ? Math.round((displayIndex / wordsData.length) * 100) : 0;
+            els.progressPercentage.textContent = `${percentage}%`;
+            els.progressBarFill.style.width = `${percentage}%`;
+        }
+
+        // 翻轉卡片事件
+        els.flashcard.addEventListener('click', () => {
+            isFlipped = !isFlipped;
+            if (isFlipped) {
+                els.flashcard.classList.add('flipped');
+            } else {
+                els.flashcard.classList.remove('flipped');
+            }
+        });
+
+        function renderFlashcard() {
+            els.statusBadge.textContent = "閃卡學習";
+            els.statusBadge.className = "bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full block";
+            
+            isFlipped = false;
+            els.flashcard.classList.remove('flipped');
+            
+            const currentItem = wordsData[currentIndex];
+            els.cardWord.textContent = currentItem.word;
+            els.cardSentence.textContent = currentItem.sentence;
+            
+            els.flashcardView.classList.remove('hidden');
+            els.quizView.classList.add('hidden');
+            els.completionView.classList.add('hidden');
+        }
+
+        // 語音朗讀功能 (強制粵語)
+        els.ttsBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // 防止觸發卡片翻轉
+            const currentItem = wordsData[currentIndex];
+            // 根據卡片正反面決定朗讀詞語還是例句
+            const textToSpeak = isFlipped ? currentItem.sentence : currentItem.word;
+            speakCantonese(textToSpeak);
+        });
+
+        function speakCantonese(text) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // 停止先前的朗讀
+                const utterance = new SpeechSynthesisUtterance(text);
+                
+                // 強制設定語言為香港粵語
+                utterance.lang = 'zh-HK';
+                utterance.rate = 0.9; // 稍微放慢語速以適合學習
+                
+                // 嘗試明確指定粵語語音 (增加兼容性)
+                const voices = window.speechSynthesis.getVoices();
+                const hkVoice = voices.find(v => v.lang === 'zh-HK' || v.lang === 'zh_HK' || v.name.includes('Hong Kong') || v.name.includes('Cantonese'));
+                if (hkVoice) {
+                    utterance.voice = hkVoice;
+                }
+                
+                window.speechSynthesis.speak(utterance);
+            } else {
+                // 替代提示 (避免使用 alert，採用 console 或 UI 提示，此處僅供防護)
+                console.warn("您的瀏覽器不支援語音合成功能。");
+            }
+        }
+
+        // 下一個按鈕邏輯
+        els.nextBtn.addEventListener('click', () => {
+            currentIndex++;
+            updateProgress();
+            
+            // 檢查是否需要進行測驗 (每 5 個字 或 已經到達最後一個字)
+            if (currentIndex > 0 && (currentIndex % BATCH_SIZE === 0 || currentIndex === wordsData.length)) {
+                // 準備進入測驗
+                triggerQuiz();
+            } else {
+                // 繼續下一張閃卡
+                renderFlashcard();
+            }
+        });
+
+        function triggerQuiz() {
+            // 計算這次測驗要包含的詞語
+            const remainder = currentIndex % BATCH_SIZE;
+            const countToExtract = (currentIndex === wordsData.length && remainder !== 0) ? remainder : BATCH_SIZE;
+            
+            currentQuizBatch = wordsData.slice(currentIndex - countToExtract, currentIndex);
+            quizAnswers = new Array(currentQuizBatch.length).fill(null);
+            
+            els.flashcardView.classList.add('hidden');
+            els.completionView.classList.add('hidden');
+            els.quizView.classList.remove('hidden');
+            els.quizView.classList.add('flex');
+            
+            els.statusBadge.textContent = "綜合測驗";
+            els.statusBadge.className = "bg-purple-100 text-purple-800 text-sm font-medium px-3 py-1 rounded-full block";
+            
+            els.checkQuizBtn.classList.add('hidden');
+            els.continueBtn.classList.add('hidden');
+            
+            renderQuizUI();
+        }
+
+        function renderQuizUI() {
+            // 清空容器
+            els.quizSentences.innerHTML = '';
+            els.wordBank.innerHTML = '';
+            
+            // 1. 渲染測驗句子
+            currentQuizBatch.forEach((item, index) => {
+                const sentenceDiv = document.createElement('div');
+                sentenceDiv.className = 'text-lg md:text-xl text-gray-700 leading-loose bg-gray-50 p-4 rounded-lg border border-gray-100 shadow-sm';
+                
+                // 處理挖空邏輯
+                let displaySentence = '';
+                const word = item.word;
+                const sentence = item.sentence;
+                
+                // 嘗試在例句中尋找詞語並替換為按鈕槽
+                if (sentence.includes(word)) {
+                    // 僅替換第一次出現的詞語
+                    const parts = sentence.split(word);
+                    const safeSlotHTML = `<span class="blank-slot" data-index="${index}" id="slot-${index}" onclick="handleSlotClick(${index})">
+                        ${quizAnswers[index] !== null ? quizAnswers[index] : '_____'}
+                    </span>`;
+                    // 組合：第一部分 + 挖空 + 剩餘所有部分 (避免原句中有多個相同詞彙導致切割問題)
+                    displaySentence = parts[0] + safeSlotHTML + parts.slice(1).join(word);
+                } else {
+                    // 如果例句中沒有直接包含該詞語(可能是變形或錯誤)，則將空格加在最後
+                    const safeSlotHTML = `<span class="blank-slot" data-index="${index}" id="slot-${index}" onclick="handleSlotClick(${index})">
+                        ${quizAnswers[index] !== null ? quizAnswers[index] : '_____'}
+                    </span>`;
+                    displaySentence = sentence + " " + safeSlotHTML;
+                }
+                
+                sentenceDiv.innerHTML = `<span class="text-blue-500 font-bold mr-2">${index + 1}.</span> ${displaySentence}`;
+                els.quizSentences.appendChild(sentenceDiv);
+            });
+            
+            // 2. 渲染字詞庫 (打亂順序)
+            const shuffledWords = [...currentQuizBatch].sort(() => Math.random() - 0.5);
+            
+            shuffledWords.forEach(item => {
+                const isUsed = quizAnswers.includes(item.word);
+                const btn = document.createElement('button');
+                btn.className = `word-btn bg-white border-2 border-slate-300 text-slate-700 font-semibold py-2 px-4 rounded-lg shadow-sm hover:border-blue-500 hover:text-blue-600 focus:outline-none ${isUsed ? 'used' : ''}`;
+                btn.textContent = item.word;
+                btn.onclick = () => handleWordClick(item.word);
+                els.wordBank.appendChild(btn);
+            });
+            
+            // 檢查是否全部填完
+            if (!quizAnswers.includes(null)) {
+                els.checkQuizBtn.classList.remove('hidden');
+            } else {
+                els.checkQuizBtn.classList.add('hidden');
+                els.continueBtn.classList.add('hidden'); // 只要有修改，就隱藏繼續按鈕
+            }
+        }
+
+        // 點擊字詞庫中的詞語
+        window.handleWordClick = function(word) {
+            // 找到第一個空缺的位置
+            const firstEmptyIndex = quizAnswers.findIndex(ans => ans === null);
+            if (firstEmptyIndex !== -1) {
+                quizAnswers[firstEmptyIndex] = word;
+                renderQuizUI();
+            }
+        };
+
+        // 點擊已填寫的空格以取消
+        window.handleSlotClick = function(index) {
+            if (quizAnswers[index] !== null) {
+                // 移除該答案的特殊樣式 (如果有)
+                const slot = document.getElementById(`slot-${index}`);
+                if (slot) {
+                    slot.classList.remove('error', 'success');
+                }
+                quizAnswers[index] = null;
+                renderQuizUI();
+            }
+        };
+
+        // 檢查答案邏輯
+        els.checkQuizBtn.addEventListener('click', () => {
+            let allCorrect = true;
+            
+            currentQuizBatch.forEach((item, index) => {
+                const slot = document.getElementById(`slot-${index}`);
+                if (!slot) return;
+                
+                if (quizAnswers[index] === item.word) {
+                    slot.classList.remove('error');
+                    slot.classList.add('success');
+                } else {
+                    slot.classList.remove('success');
+                    slot.classList.add('error');
+                    allCorrect = false;
+                }
+            });
+            
+            if (allCorrect) {
+                // 播放成功音效或視覺回饋
+                els.checkQuizBtn.classList.add('hidden');
+                els.continueBtn.classList.remove('hidden');
+            }
+        });
+
+        // 測驗全對後，繼續學習
+        els.continueBtn.addEventListener('click', () => {
+            if (currentIndex >= wordsData.length) {
+                // 已經學完所有詞彙
+                showCompletion();
+            } else {
+                // 繼續下一批閃卡
+                renderFlashcard();
+            }
+        });
+
+        function showCompletion() {
+            els.flashcardView.classList.add('hidden');
+            els.quizView.classList.add('hidden');
+            els.completionView.classList.remove('hidden');
+            els.completionView.classList.add('flex');
+            
+            els.statusBadge.textContent = "學習完成";
+            els.statusBadge.className = "bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded-full block";
+            els.progressText.textContent = `學習進度: ${wordsData.length} / ${wordsData.length}`;
+            els.progressPercentage.textContent = `100%`;
+            els.progressBarFill.style.width = `100%`;
+        }
+    </script>
+</body>
+</html>
